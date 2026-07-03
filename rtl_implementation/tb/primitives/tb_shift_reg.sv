@@ -53,16 +53,17 @@ module tb_shift_reg;
     rst_n   = 1;
     en      = 1;
 
-    // Feed sequence 1..5
-    // taps are read BEFORE each clock edge so delay[] still holds previous values
+    // Feed sequence 1..4 using task (each clocks at end)
     present_and_display(16'sd1);  // taps: 1 0 0 0 0
     present_and_display(16'sd2);  // taps: 2 1 0 0 0
     present_and_display(16'sd3);  // taps: 3 2 1 0 0
     present_and_display(16'sd4);  // taps: 4 3 2 1 0
-    present_and_display(16'sd5);  // taps: 5 4 3 2 1
 
-    // set input=5 again and check dilation=2 taps before clocking
+    // step 5 done manually — dilation check must happen BEFORE the clock
     data_in = 16'sd5; #1;
+    $display("input=5 : taps = %0d %0d %0d %0d %0d",
+              taps[0], taps[1], taps[2], taps[3], taps[4]);
+
     $display("");
     $display("dilation=2 kernel=3 reads:");
     $display("  tap[0]=%0d (t)   tap[2]=%0d (t-2)   tap[4]=%0d (t-4)",
@@ -74,9 +75,10 @@ module tb_shift_reg;
     else
       $display("FAIL");
 
+    @(posedge clk); #1;  // now clock — delay[0] captures 5
+
     // Test en=0 — delay[] should not shift
     $display("");
-    @(posedge clk); #1;  // clock with data_in=5 → delay[0]=5
     en      = 0;
     data_in = 16'sd99; #1;
 
