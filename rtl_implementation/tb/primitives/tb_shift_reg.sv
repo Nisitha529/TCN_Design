@@ -18,7 +18,7 @@ module tb_shift_reg;
   shift_reg #(
     .DATA_WIDTH (DATA_WIDTH),
     .DEPTH      (DEPTH)
-  ) dut (
+  ) dut_shift_reg (
     .clk        (clk),
     .rst_n      (rst_n),
 
@@ -33,13 +33,14 @@ module tb_shift_reg;
 
   always #(CLK_PERIOD / 2) clk = ~clk;
 
-  // set data_in, display taps BEFORE clock edge, then clock
+  // Set data_in, display taps BEFORE clock edge, then clock
   task present_and_display(input signed [DATA_WIDTH-1:0] val);
     data_in = val;
-    #1;  // let combinational taps[0] settle
-    $display("input=%0d : taps = %0d %0d %0d %0d %0d",
-              val, taps[0], taps[1], taps[2], taps[3], taps[4]);
-    @(posedge clk); #1;  // clock edge: delay[] captures current data_in
+    #1;  
+
+    $display("input=%0d : taps = %0d %0d %0d %0d %0d", val, taps[0], taps[1], taps[2], taps[3], taps[4]);
+    @(posedge clk); #1;  // Clock edge: delay[] captures current data_in
+
   endtask
 
   initial begin
@@ -61,23 +62,22 @@ module tb_shift_reg;
 
     // step 5 done manually — dilation check must happen BEFORE the clock
     data_in = 16'sd5; #1;
-    $display("input=5 : taps = %0d %0d %0d %0d %0d",
-              taps[0], taps[1], taps[2], taps[3], taps[4]);
+    $display("input=5 : taps = %0d %0d %0d %0d %0d", taps[0], taps[1], taps[2], taps[3], taps[4]);
 
     $display("");
     $display("dilation=2 kernel=3 reads:");
-    $display("  tap[0]=%0d (t)   tap[2]=%0d (t-2)   tap[4]=%0d (t-4)",
-              taps[0], taps[2], taps[4]);
+    $display("  tap[0]=%0d (t)   tap[2]=%0d (t-2)   tap[4]=%0d (t-4)", taps[0], taps[2], taps[4]);
     $display("  expected: 5, 3, 1");
 
-    if (taps[0]==5 && taps[2]==3 && taps[4]==1)
+    if (taps[0]==5 && taps[2]==3 && taps[4]==1) begin
       $display("PASS");
-    else
+    end else begin
       $display("FAIL");
+    end
 
-    @(posedge clk); #1;  // now clock — delay[0] captures 5
+    @(posedge clk); #1; 
 
-    // Test en=0 — delay[] should not shift
+    // Test en=0, delay[] should not shift
     $display("");
     en      = 0;
     data_in = 16'sd99; #1;
