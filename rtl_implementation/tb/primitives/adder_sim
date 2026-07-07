@@ -1,0 +1,179 @@
+#! /usr/bin/vvp
+:ivl_version "11.0 (stable)";
+:ivl_delay_selection "TYPICAL";
+:vpi_time_precision - 12;
+:vpi_module "/usr/lib/x86_64-linux-gnu/ivl/system.vpi";
+:vpi_module "/usr/lib/x86_64-linux-gnu/ivl/vhdl_sys.vpi";
+:vpi_module "/usr/lib/x86_64-linux-gnu/ivl/vhdl_textio.vpi";
+:vpi_module "/usr/lib/x86_64-linux-gnu/ivl/v2005_math.vpi";
+:vpi_module "/usr/lib/x86_64-linux-gnu/ivl/va_math.vpi";
+:vpi_module "/usr/lib/x86_64-linux-gnu/ivl/v2009.vpi";
+S_0x5ef2e62e7a70 .scope package, "$unit" "$unit" 2 1;
+ .timescale 0 0;
+S_0x5ef2e62e7c00 .scope module, "tb_adder_sat" "tb_adder_sat" 3 3;
+ .timescale -9 -12;
+P_0x5ef2e62ad620 .param/l "DATA_WIDTH" 0 3 5, +C4<00000000000000000000000000010000>;
+P_0x5ef2e62ad660 .param/l "MAX" 1 3 38, +C4<0111111111111111>;
+P_0x5ef2e62ad6a0 .param/l "MIN" 1 3 39, +C4<1000000000000000>;
+v0x5ef2e63077c0_0 .var/s "a", 15 0;
+v0x5ef2e6307880_0 .var/s "b", 15 0;
+v0x5ef2e6307950_0 .net/s "result", 15 0, L_0x5ef2e63185b0;  1 drivers
+S_0x5ef2e62abcf0 .scope task, "check" "check" 3 21, 3 21 0, S_0x5ef2e62e7c00;
+ .timescale -9 -12;
+v0x5ef2e62abe80_0 .var/s "expected", 15 0;
+v0x5ef2e6306420_0 .var/s "in_a", 15 0;
+v0x5ef2e6306500_0 .var/s "in_b", 15 0;
+TD_tb_adder_sat.check ;
+    %load/vec4 v0x5ef2e6306420_0;
+    %store/vec4 v0x5ef2e63077c0_0, 0, 16;
+    %load/vec4 v0x5ef2e6306500_0;
+    %store/vec4 v0x5ef2e6307880_0, 0, 16;
+    %delay 1000, 0;
+    %load/vec4 v0x5ef2e6307950_0;
+    %load/vec4 v0x5ef2e62abe80_0;
+    %cmp/e;
+    %jmp/0xz  T_0.0, 6;
+    %vpi_call/w 3 32 "$display", "PASS  %0d + %0d = %0d", v0x5ef2e6306420_0, v0x5ef2e6306500_0, v0x5ef2e6307950_0 {0 0 0};
+    %jmp T_0.1;
+T_0.0 ;
+    %vpi_call/w 3 34 "$display", "FAIL  %0d + %0d = %0d  expected=%0d", v0x5ef2e6306420_0, v0x5ef2e6306500_0, v0x5ef2e6307950_0, v0x5ef2e62abe80_0 {0 0 0};
+T_0.1 ;
+    %end;
+S_0x5ef2e63065c0 .scope module, "dut_adder_sat" "adder_sat" 3 14, 4 1 0, S_0x5ef2e62e7c00;
+ .timescale 0 0;
+    .port_info 0 /INPUT 16 "a";
+    .port_info 1 /INPUT 16 "b";
+    .port_info 2 /OUTPUT 16 "result";
+P_0x5ef2e63067c0 .param/l "DATA_WIDTH" 0 4 2, +C4<00000000000000000000000000010000>;
+L_0x5ef2e6307ec0 .functor XOR 1, L_0x5ef2e6307fd0, L_0x5ef2e6308100, C4<0>, C4<0>;
+v0x5ef2e63068e0_0 .net *"_ivl_1", 0 0, L_0x5ef2e6307a50;  1 drivers
+v0x5ef2e63069e0_0 .net *"_ivl_11", 0 0, L_0x5ef2e6307fd0;  1 drivers
+v0x5ef2e6306ac0_0 .net *"_ivl_13", 0 0, L_0x5ef2e6308100;  1 drivers
+v0x5ef2e6306bb0_0 .net *"_ivl_14", 0 0, L_0x5ef2e6307ec0;  1 drivers
+v0x5ef2e6306c70_0 .net *"_ivl_17", 0 0, L_0x5ef2e6308240;  1 drivers
+L_0x7561cffb7018 .functor BUFT 1, C4<1000000000000000>, C4<0>, C4<0>, C4<0>;
+v0x5ef2e6306da0_0 .net/2s *"_ivl_18", 15 0, L_0x7561cffb7018;  1 drivers
+v0x5ef2e6306e80_0 .net *"_ivl_2", 16 0, L_0x5ef2e6307b20;  1 drivers
+L_0x7561cffb7060 .functor BUFT 1, C4<0111111111111111>, C4<0>, C4<0>, C4<0>;
+v0x5ef2e6306f60_0 .net/2s *"_ivl_20", 15 0, L_0x7561cffb7060;  1 drivers
+v0x5ef2e6307040_0 .net *"_ivl_22", 15 0, L_0x5ef2e6318340;  1 drivers
+v0x5ef2e6307120_0 .net *"_ivl_25", 15 0, L_0x5ef2e63184b0;  1 drivers
+v0x5ef2e6307200_0 .net *"_ivl_5", 0 0, L_0x5ef2e6307c10;  1 drivers
+v0x5ef2e63072e0_0 .net *"_ivl_6", 16 0, L_0x5ef2e6307d00;  1 drivers
+v0x5ef2e63073c0_0 .net/s "a", 15 0, v0x5ef2e63077c0_0;  1 drivers
+v0x5ef2e63074a0_0 .net/s "b", 15 0, v0x5ef2e6307880_0;  1 drivers
+v0x5ef2e6307580_0 .net/s "result", 15 0, L_0x5ef2e63185b0;  alias, 1 drivers
+v0x5ef2e6307660_0 .net/s "sum", 16 0, L_0x5ef2e6307e20;  1 drivers
+L_0x5ef2e6307a50 .part v0x5ef2e63077c0_0, 15, 1;
+L_0x5ef2e6307b20 .concat [ 16 1 0 0], v0x5ef2e63077c0_0, L_0x5ef2e6307a50;
+L_0x5ef2e6307c10 .part v0x5ef2e6307880_0, 15, 1;
+L_0x5ef2e6307d00 .concat [ 16 1 0 0], v0x5ef2e6307880_0, L_0x5ef2e6307c10;
+L_0x5ef2e6307e20 .arith/sum 17, L_0x5ef2e6307b20, L_0x5ef2e6307d00;
+L_0x5ef2e6307fd0 .part L_0x5ef2e6307e20, 16, 1;
+L_0x5ef2e6308100 .part L_0x5ef2e6307e20, 15, 1;
+L_0x5ef2e6308240 .part L_0x5ef2e6307e20, 16, 1;
+L_0x5ef2e6318340 .functor MUXZ 16, L_0x7561cffb7060, L_0x7561cffb7018, L_0x5ef2e6308240, C4<>;
+L_0x5ef2e63184b0 .part L_0x5ef2e6307e20, 0, 16;
+L_0x5ef2e63185b0 .functor MUXZ 16, L_0x5ef2e63184b0, L_0x5ef2e6318340, L_0x5ef2e6307ec0, C4<>;
+    .scope S_0x5ef2e62e7c00;
+T_1 ;
+    %vpi_call/w 3 42 "$display", "Saturating Adder Testbench" {0 0 0};
+    %pushi/vec4 100, 0, 16;
+    %store/vec4 v0x5ef2e6306420_0, 0, 16;
+    %pushi/vec4 200, 0, 16;
+    %store/vec4 v0x5ef2e6306500_0, 0, 16;
+    %pushi/vec4 300, 0, 16;
+    %store/vec4 v0x5ef2e62abe80_0, 0, 16;
+    %fork TD_tb_adder_sat.check, S_0x5ef2e62abcf0;
+    %join;
+    %pushi/vec4 65436, 0, 16;
+    %store/vec4 v0x5ef2e6306420_0, 0, 16;
+    %pushi/vec4 65336, 0, 16;
+    %store/vec4 v0x5ef2e6306500_0, 0, 16;
+    %pushi/vec4 65236, 0, 16;
+    %store/vec4 v0x5ef2e62abe80_0, 0, 16;
+    %fork TD_tb_adder_sat.check, S_0x5ef2e62abcf0;
+    %join;
+    %pushi/vec4 100, 0, 16;
+    %store/vec4 v0x5ef2e6306420_0, 0, 16;
+    %pushi/vec4 65336, 0, 16;
+    %store/vec4 v0x5ef2e6306500_0, 0, 16;
+    %pushi/vec4 65436, 0, 16;
+    %store/vec4 v0x5ef2e62abe80_0, 0, 16;
+    %fork TD_tb_adder_sat.check, S_0x5ef2e62abcf0;
+    %join;
+    %pushi/vec4 32767, 0, 16;
+    %store/vec4 v0x5ef2e6306420_0, 0, 16;
+    %pushi/vec4 1, 0, 16;
+    %store/vec4 v0x5ef2e6306500_0, 0, 16;
+    %pushi/vec4 32767, 0, 16;
+    %store/vec4 v0x5ef2e62abe80_0, 0, 16;
+    %fork TD_tb_adder_sat.check, S_0x5ef2e62abcf0;
+    %join;
+    %pushi/vec4 32767, 0, 16;
+    %store/vec4 v0x5ef2e6306420_0, 0, 16;
+    %pushi/vec4 32767, 0, 16;
+    %store/vec4 v0x5ef2e6306500_0, 0, 16;
+    %pushi/vec4 32767, 0, 16;
+    %store/vec4 v0x5ef2e62abe80_0, 0, 16;
+    %fork TD_tb_adder_sat.check, S_0x5ef2e62abcf0;
+    %join;
+    %pushi/vec4 20000, 0, 16;
+    %store/vec4 v0x5ef2e6306420_0, 0, 16;
+    %pushi/vec4 20000, 0, 16;
+    %store/vec4 v0x5ef2e6306500_0, 0, 16;
+    %pushi/vec4 32767, 0, 16;
+    %store/vec4 v0x5ef2e62abe80_0, 0, 16;
+    %fork TD_tb_adder_sat.check, S_0x5ef2e62abcf0;
+    %join;
+    %pushi/vec4 32768, 0, 16;
+    %store/vec4 v0x5ef2e6306420_0, 0, 16;
+    %pushi/vec4 65535, 0, 16;
+    %store/vec4 v0x5ef2e6306500_0, 0, 16;
+    %pushi/vec4 32768, 0, 16;
+    %store/vec4 v0x5ef2e62abe80_0, 0, 16;
+    %fork TD_tb_adder_sat.check, S_0x5ef2e62abcf0;
+    %join;
+    %pushi/vec4 32768, 0, 16;
+    %store/vec4 v0x5ef2e6306420_0, 0, 16;
+    %pushi/vec4 32768, 0, 16;
+    %store/vec4 v0x5ef2e6306500_0, 0, 16;
+    %pushi/vec4 32768, 0, 16;
+    %store/vec4 v0x5ef2e62abe80_0, 0, 16;
+    %fork TD_tb_adder_sat.check, S_0x5ef2e62abcf0;
+    %join;
+    %pushi/vec4 45536, 0, 16;
+    %store/vec4 v0x5ef2e6306420_0, 0, 16;
+    %pushi/vec4 45536, 0, 16;
+    %store/vec4 v0x5ef2e6306500_0, 0, 16;
+    %pushi/vec4 32768, 0, 16;
+    %store/vec4 v0x5ef2e62abe80_0, 0, 16;
+    %fork TD_tb_adder_sat.check, S_0x5ef2e62abcf0;
+    %join;
+    %pushi/vec4 32767, 0, 16;
+    %store/vec4 v0x5ef2e6306420_0, 0, 16;
+    %pushi/vec4 0, 0, 16;
+    %store/vec4 v0x5ef2e6306500_0, 0, 16;
+    %pushi/vec4 32767, 0, 16;
+    %store/vec4 v0x5ef2e62abe80_0, 0, 16;
+    %fork TD_tb_adder_sat.check, S_0x5ef2e62abcf0;
+    %join;
+    %pushi/vec4 32768, 0, 16;
+    %store/vec4 v0x5ef2e6306420_0, 0, 16;
+    %pushi/vec4 0, 0, 16;
+    %store/vec4 v0x5ef2e6306500_0, 0, 16;
+    %pushi/vec4 32768, 0, 16;
+    %store/vec4 v0x5ef2e62abe80_0, 0, 16;
+    %fork TD_tb_adder_sat.check, S_0x5ef2e62abcf0;
+    %join;
+    %vpi_call/w 3 63 "$display", "Done" {0 0 0};
+    %vpi_call/w 3 64 "$finish" {0 0 0};
+    %end;
+    .thread T_1;
+# The file index is used to find the file name in the following table.
+:file_names 5;
+    "N/A";
+    "<interactive>";
+    "-";
+    "tb_adder_sat.sv";
+    "../../rtl/primitives/adder_sat.v";
