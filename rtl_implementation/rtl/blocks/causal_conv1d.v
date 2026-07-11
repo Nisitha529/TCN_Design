@@ -15,11 +15,12 @@ module causal_conv1d #(
   output reg                              valid_out
 );
 
-  localparam DEPTH   = (KERNEL_SIZE - 1) * DILATION;
-  localparam ADDR_W  = $clog2(KERNEL_SIZE);
+  localparam DEPTH      = (KERNEL_SIZE - 1) * DILATION;
+  localparam ADDR_W     = $clog2(KERNEL_SIZE);
 
-  localparam CNT_MAX = KERNEL_SIZE + 1;
-  localparam CNT_W   = $clog2(CNT_MAX + 1) + 1;
+  localparam CNT_SETTLE = KERNEL_SIZE + 1;
+  localparam CNT_MAX    = KERNEL_SIZE + 2;
+  localparam CNT_W      = $clog2(CNT_MAX + 1) + 1;
 
   reg signed  [DATA_WIDTH - 1 : 0] weight_mem   [0 : KERNEL_SIZE - 1];
   reg signed  [DATA_WIDTH - 1 : 0] weight_rd;
@@ -41,7 +42,7 @@ module causal_conv1d #(
   integer k;
 
   initial begin 
-    $readmemh (WEIGHT_FILE, weight_mem);
+    $readmemh   (WEIGHT_FILE, weight_mem);
   end
 
 
@@ -104,34 +105,41 @@ module causal_conv1d #(
       valid_out   <= 0;
 
       if (cnt == 0) begin
-        // ---- IDLE ----
+        // IDLE
         if (en) begin
-          // latch dilated taps before shift register advances
-          for (k = 0; k < KERNEL_SIZE; k = k+1)
-            tap_latch[k] <= taps[k * DILATION];
+          // Latch dilated taps before shift register advances
+          for (k = 0; k < KERNEL_SIZE; k = k + 1) begin
+            tap_latch [k] <= taps [k * DILATION];
+          end
 
-          mac_clear   <= 1;          // zero accumulator
-          weight_addr <= 0;          // pre-fetch w[0]: ready next cycle
+          mac_clear   <= 1;          // Zero accumulator
+          weight_addr <= 0;          // Pre-fetch w[0]: ready next cycle
           cnt         <= 1;
+
         end
 
       end else if (cnt <= KERNEL_SIZE) begin
-        // ---- ACCUMULATE ----
+        // ACCUMULATE
         // weight_rd = w[cnt-1]  (presented last cycle, 1-cycle BRAM latency)
-        mac_en   <= 1;
-        mac_data <= tap_latch[cnt-1];
+        mac_en        <= 1;
+        mac_data      <= tap_latch [cnt-1];
 
-        // pre-fetch next weight (no pre-fetch on final tap)
-        if (cnt < KERNEL_SIZE)
+        // Pre-fetch next weight (no pre-fetch on final tap)
+        if (cnt < KERNEL_SIZE) begin
           weight_addr <= cnt;
+        end
 
-        cnt <= cnt + 1;
+        cnt           <= cnt + 1;
+
+      end else if (cnt == CNT_SETTLE) begin
+        // SETTLE — final MAC accumulation happened last edge, wait one cycle
+        cnt           <= cnt + 1;
 
       end else begin
-        // ---- OUTPUT ---- (cnt == KERNEL_SIZE+1)
-        data_out  <= relu_out;
-        valid_out <= 1;
-        cnt       <= 0;
+        // OUTPUT (cnt == KERNEL_SIZE+2)
+        data_out      <= relu_out;
+        valid_out     <= 1;
+        cnt           <= 0;
       end
     end
   end

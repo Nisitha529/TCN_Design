@@ -30,7 +30,7 @@ module tb_relu ();
   endtask
 
   initial begin
-    $display  ("--- ReLU Testbench ---");
+    $display  ("ReLU Testbench");
 
     check_relu(  16'sd100,   16'sd100);   // positive → pass through
     check_relu(  16'sd0,     16'sd0);     // zero     → zero
@@ -39,7 +39,7 @@ module tb_relu ();
     check_relu(  16'sd32767, 16'sd32767); // max positive → pass through
     check_relu(-16'sd500,    16'sd0);     // negative → zero
 
-    $display  ("--- Done ---");
+    $display  ("Done");
     $finish;
 
   end
