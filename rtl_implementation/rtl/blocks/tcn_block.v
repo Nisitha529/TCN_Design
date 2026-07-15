@@ -1,131 +1,221 @@
 module tcn_block #(
-  parameter KERNEL_SIZE   = 3,
+  parameter IN_CHANNELS     = 1,
+  parameter OUT_CHANNELS    = 1,
 
-  parameter DILATION_1    = 1,
-  parameter DILATION_2    = 2,
+  parameter KERNEL_SIZE     = 3,
+  parameter DILATION        = 1,
 
-  parameter DATA_WIDTH    = 16,
-  parameter ACC_WIDTH     = 32,
-  
-  parameter WEIGHT_FILE_1 = "w1.hex",
-  parameter WEIGHT_FILE_2 = "w2.hex"
+  parameter DATA_WIDTH      = 16,
+  parameter ACC_WIDTH       = 32,
+
+  // Fractional bits for Q8.8 fixed-point (pass 8 with exported model weights)
+  parameter FRAC_BITS        = 0,
+
+  // Set 1 when IN_CHANNELS != OUT_CHANNELS; drives a 1x1 residual conv
+  parameter HAS_RES_CONV    = 0,
+
+  parameter WEIGHT_FILE_1   = "w1.hex",
+  parameter BIAS_FILE_1     = "b1.hex",
+  parameter WEIGHT_FILE_2   = "w2.hex",
+  parameter BIAS_FILE_2     = "b2.hex",
+  parameter RES_WEIGHT_FILE = "res_w.hex",
+  parameter RES_BIAS_FILE   = "res_b.hex"
 )(
-  input  wire                             clk,
-  input  wire                             rst_n,
+  input  wire                                     clk,
+  input  wire                                     rst_n,
 
-  input  wire                             en,
-  input  wire signed [DATA_WIDTH - 1 : 0] data_in,
+  input  wire                                     en,
+  input  wire [IN_CHANNELS  * DATA_WIDTH - 1 : 0] data_in,
 
-  output reg  signed [DATA_WIDTH - 1 : 0] data_out,
-  output reg                              valid_out
+  output reg  [OUT_CHANNELS * DATA_WIDTH - 1 : 0] data_out,
+  output reg                                      valid_out
 );
 
-  // Each causal_conv1d: KERNEL_SIZE+3 cycles from en = 1 to valid_out = 1
-  localparam CONV_LAT    = KERNEL_SIZE + 3;
-  localparam MAIN_LAT    = 2 * CONV_LAT;   // K = 3 : 12 cycles
+  // causal_conv1d latency = OUT_CH * (IN_CH * K + 2) cycles from en to valid_out
+  localparam CONV1_LAT  = OUT_CHANNELS * (IN_CHANNELS  * KERNEL_SIZE + 2);
+  localparam CONV2_LAT  = OUT_CHANNELS * (OUT_CHANNELS * KERNEL_SIZE + 2);
+  // conv1_valid is registered so conv2 sees "en"able one cycle after conv1 outputs
+  localparam MAIN_LAT   = CONV1_LAT + CONV2_LAT + 1;
 
-  wire signed [DATA_WIDTH - 1 : 0] conv1_out;
-  wire                             conv1_valid;
+  // residual 1x1 (K = 1) : OUT_CH * (IN_CH + 2) cycles; 0 when HAS_RES_CONV = 0
+  localparam RES_LAT    = HAS_RES_CONV ? OUT_CHANNELS * (IN_CHANNELS + 2) : 0;
 
-  wire signed [DATA_WIDTH - 1 : 0] conv2_out;
-  wire                             conv2_valid;
+  // Output register adds 1 extra cycle after conv2_valid, so residual delay = MAIN_LAT - RES_LAT + 1. 
+  // It arrives exactly when the output reg captures.
+  localparam RES_DELAY  = MAIN_LAT - RES_LAT + 1;
 
-  wire signed [DATA_WIDTH - 1 : 0] sum;
+  genvar                                   gch;
 
-  wire signed [DATA_WIDTH - 1 : 0] relu_out;
+  integer                                  jj;
 
-  reg  signed [DATA_WIDTH - 1 : 0] res_delay    [0:MAIN_LAT-1];
-  
-  integer                          j;
+  // Delay res_feed by RES_DELAY cycles so it aligns with the output register
+  // (which captures 1 cycle after conv2_valid, i.e., MAIN_LAT+1 cycles total)
+  reg  [OUT_CHANNELS * DATA_WIDTH - 1 : 0] res_sr       [0 : RES_DELAY - 1];
 
-  // Conv1 : dilation 1
+  wire [OUT_CHANNELS * DATA_WIDTH - 1 : 0] res_path_out = res_sr [RES_DELAY - 1]; 
+
+  // Conv1 : IN_CH : OUT_CH
+  wire [OUT_CHANNELS * DATA_WIDTH - 1 : 0] conv1_out;
+  wire                                     conv1_valid;
+
+  // Conv2 : OUT_CH : OUT_CH, chained from conv1_valid.
+  wire [OUT_CHANNELS * DATA_WIDTH - 1 : 0] conv2_out;
+  wire                                     conv2_valid;
+
+  // Residual path
+  // res_feed : what gets loaded into the delay shift register every clock
+  wire [OUT_CHANNELS * DATA_WIDTH - 1 : 0] res_feed;
+
+  // Per-channel saturating add + ReLU (combinational)
+  wire [OUT_CHANNELS * DATA_WIDTH - 1 : 0] relu_out;
+
+  generate
+    if (HAS_RES_CONV) begin : gen_res_1x1
+      // 1 × 1 causal_conv1d: IN_CH : OUT_CH, latency = RES_LAT cycles
+      wire [OUT_CHANNELS * DATA_WIDTH - 1 : 0] res_conv_out;
+
+      causal_conv1d #(
+        .IN_CHANNELS  (IN_CHANNELS),
+        .OUT_CHANNELS (OUT_CHANNELS),
+
+        .KERNEL_SIZE  (1),
+        .DILATION     (1),
+
+        .DATA_WIDTH   (DATA_WIDTH),
+        .ACC_WIDTH    (ACC_WIDTH),
+
+        .WEIGHT_FILE  (RES_WEIGHT_FILE),
+        .BIAS_FILE    (RES_BIAS_FILE),
+
+        .FRAC_BITS    (FRAC_BITS),
+        .APPLY_RELU   (0)
+      ) res_conv (
+        .clk          (clk),
+        .rst_n        (rst_n),
+
+        .en           (en),
+        .data_in      (data_in),
+
+        .data_out     (res_conv_out),
+        .valid_out    ()
+      );
+
+      assign res_feed = res_conv_out;
+
+    end else begin : gen_res_id
+      // Identity : IN_CHANNELS must equal OUT_CHANNELS
+      assign res_feed = data_in;
+    end
+  endgenerate
+
+  generate
+    for (gch = 0; gch < OUT_CHANNELS; gch = gch + 1) begin : gen_ch
+      wire signed [DATA_WIDTH - 1 : 0] ch_conv2;
+      wire signed [DATA_WIDTH - 1 : 0] ch_res;
+      wire signed [DATA_WIDTH - 1 : 0] ch_sum;
+      wire signed [DATA_WIDTH - 1 : 0] ch_relu;
+
+      assign ch_conv2 = $signed(conv2_out    [gch * DATA_WIDTH +: DATA_WIDTH]);
+      assign ch_res   = $signed(res_path_out [gch * DATA_WIDTH +: DATA_WIDTH]);
+
+      adder_sat #(
+        .DATA_WIDTH    (DATA_WIDTH)
+      ) add_i (
+        .a             (ch_conv2),
+        .b             (ch_res),
+
+        .result        (ch_sum)
+      );
+
+      relu #(
+        .DATA_WIDTH    (DATA_WIDTH)
+      ) relu_i (
+        .data_in       (ch_sum),
+
+        .data_out      (ch_relu)
+      );
+
+      assign relu_out[gch * DATA_WIDTH +: DATA_WIDTH] = ch_relu;
+    end
+  endgenerate
+
   causal_conv1d #(
-    .KERNEL_SIZE (KERNEL_SIZE),
-    .DILATION    (DILATION_1),
-    .DATA_WIDTH  (DATA_WIDTH),
-    .ACC_WIDTH   (ACC_WIDTH),
-    .WEIGHT_FILE (WEIGHT_FILE_1)
-  ) causal_conv1d_01 (
-    .clk         (clk),
-    .rst_n       (rst_n),
+    .IN_CHANNELS      (IN_CHANNELS),
+    .OUT_CHANNELS     (OUT_CHANNELS),
 
-    .en          (en),
-    .data_in     (data_in),
+    .KERNEL_SIZE      (KERNEL_SIZE),
+    .DILATION         (DILATION),
 
-    .data_out    (conv1_out),
-    .valid_out   (conv1_valid)
+    .DATA_WIDTH       (DATA_WIDTH),
+    .ACC_WIDTH        (ACC_WIDTH),
+
+    .WEIGHT_FILE      (WEIGHT_FILE_1),
+    .BIAS_FILE        (BIAS_FILE_1),
+
+    .FRAC_BITS        (FRAC_BITS)
+  ) conv1 (
+    .clk              (clk),
+    .rst_n            (rst_n),
+
+    .en               (en),
+    .data_in          (data_in),
+
+    .data_out         (conv1_out),
+    .valid_out        (conv1_valid)
   );
 
-  // Conv2 : dilation 2, triggered by conv1's valid output
   causal_conv1d #(
-    .KERNEL_SIZE (KERNEL_SIZE),
-    .DILATION    (DILATION_2),
-    .DATA_WIDTH  (DATA_WIDTH),
-    .ACC_WIDTH   (ACC_WIDTH),
-    .WEIGHT_FILE (WEIGHT_FILE_2)
-  ) causal_conv1d_02 (
-    .clk         (clk),
-    .rst_n       (rst_n),
+    .IN_CHANNELS      (OUT_CHANNELS),
+    .OUT_CHANNELS     (OUT_CHANNELS),
 
-    .en          (conv1_valid),    // Chained: conv1 output feeds conv2 enable
-    .data_in     (conv1_out),
+    .KERNEL_SIZE      (KERNEL_SIZE),
+    .DILATION         (DILATION),
 
-    .data_out    (conv2_out),
-    .valid_out   (conv2_valid)
+    .DATA_WIDTH       (DATA_WIDTH),
+    .ACC_WIDTH        (ACC_WIDTH),
+
+    .WEIGHT_FILE      (WEIGHT_FILE_2),
+    .BIAS_FILE        (BIAS_FILE_2),
+
+    .FRAC_BITS        (FRAC_BITS)
+  ) conv2 (
+    .clk              (clk),
+    .rst_n            (rst_n),
+
+    .en               (conv1_valid),
+    .data_in          (conv1_out),
+
+    .data_out         (conv2_out),
+    .valid_out        (conv2_valid)
   );
 
-  // Residual add : Saturating to prevent overflow wrap
-  adder_sat #(
-    .DATA_WIDTH  (DATA_WIDTH)
-  ) adder_sat_01 (
-    .a           (conv2_out),
-    .b           (res_delay[MAIN_LAT - 1]),
-
-    .result      (sum)
-  );
-
-  // Final ReLU (matches Python: self.relu(out + res))
-  relu #(
-    .DATA_WIDTH  (DATA_WIDTH)
-  ) relu_01 (
-    .data_in     (sum),
-
-    .data_out    (relu_out)
-  );
-
-  // Residual delay
-  // Shifts every cycle, read at MAIN_LAT-1 data_in captured at T, arrives at tap[MAIN_LAT-1] at T+MAIN_LAT
-  // which aligns exactly with conv2_valid = 1
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      for (j = 0; j < MAIN_LAT; j = j + 1) begin
-        res_delay [j] <= 0;
+      for (jj = 0; jj < RES_DELAY; jj = jj + 1) begin
+        res_sr [jj] <= 0;
       end
 
     end else begin
-      res_delay [0]   <= data_in;
+      res_sr [0]    <= res_feed;
 
-      for (j = 1; j < MAIN_LAT; j = j + 1) begin
-        res_delay [j] <= res_delay [j - 1];
+      for (jj = 1; jj < RES_DELAY; jj = jj + 1) begin
+        res_sr [jj] <= res_sr [jj - 1];
       end
 
     end
   end
 
-  // Output register : 1 cycle after conv2_valid
-  // Total latency from en = 1: MAIN_LAT + 1 = 13 cycles (K = 3)
+
+
+  // ── Output register : 1 cycle after conv2_valid ──────────────────────────
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      data_out        <= 0;
-      valid_out       <= 0;
-
+      data_out  <= 0;
+      valid_out <= 0;
     end else begin
-      valid_out       <= conv2_valid;
-
-      if (conv2_valid) begin
-        data_out      <= relu_out;
-      end
-
+      valid_out <= conv2_valid;
+      if (conv2_valid)
+        data_out <= relu_out;
     end
   end
 

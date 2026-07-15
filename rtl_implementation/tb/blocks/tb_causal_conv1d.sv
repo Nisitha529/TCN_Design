@@ -4,8 +4,10 @@ module tb_causal_conv1d;
 
   parameter KERNEL_SIZE = 3;
   parameter DILATION    = 1;
+
   parameter DATA_WIDTH  = 16;
   parameter ACC_WIDTH   = 32;
+  
   parameter CLK_PERIOD  = 10;
 
   logic                             clk;
@@ -20,10 +22,13 @@ module tb_causal_conv1d;
   causal_conv1d #(
     .KERNEL_SIZE (KERNEL_SIZE),
     .DILATION    (DILATION),
+
     .DATA_WIDTH  (DATA_WIDTH),
     .ACC_WIDTH   (ACC_WIDTH),
-    .WEIGHT_FILE ("../../weights/test_conv_weights.hex")
-  ) dut (
+
+    .WEIGHT_FILE ("../../weights/test_conv_weights.hex"),
+    .BIAS_FILE   ("../../weights/test_conv_bias.hex")
+  ) dut_causal_conv1d (
     .clk         (clk),
     .rst_n       (rst_n),
 
@@ -52,15 +57,15 @@ module tb_causal_conv1d;
       @(posedge clk); #1;
       if (valid_out) begin
         if (data_out === expected) begin
-          $display("PASS  input=%-3d  output=%-4d  expected=%-4d", val, data_out, expected);
+          $display("PASS  input = %-3d  output = %-4d  expected = %-4d", val, data_out, expected);
         end else begin
-          $display("FAIL  input=%-3d  output=%-4d  expected=%-4d", val, data_out, expected);
+          $display("FAIL  input = %-3d  output = %-4d  expected = %-4d", val, data_out, expected);
         end
 
         disable apply_input;
       end
     end
-    $display("TIMEOUT waiting for valid_out (input=%0d)", val);
+    $display("TIMEOUT waiting for valid_out (input = %0d)", val);
   endtask
 
   // Test: weights = [1, 2, 3], inputs = [1, 2, 3, 4, 5]
@@ -73,7 +78,6 @@ module tb_causal_conv1d;
   // out[2] = 3 : 3 * 1 + 2 * 2 + 1 * 3 = 10
   // out[3] = 4 : 4 * 1 + 3 * 2 + 2 * 3 = 16
   // out[4] = 5 : 5 * 1 + 4 * 2 + 3 * 3 = 22
-  // -------------------------------------------------------
   initial begin
     $display("CausalConv1d Testbench");
     $display("weights = [1, 2, 3]  dilation = %0d  kernel = %0d", DILATION, KERNEL_SIZE);

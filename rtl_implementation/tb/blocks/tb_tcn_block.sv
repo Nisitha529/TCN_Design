@@ -1,91 +1,112 @@
 `timescale 1ns/1ps
 
+// tcn_block testbench : single channel (IN = 1, OUT = 1, HAS_RES_CONV = 0)
+//
+// Both convolutions: weights = [1, 0, 0], bias = 0, dilation = 1
+// Identity residual: data_in is delayed by MAIN_LAT and added to conv2 output
+//
+// Per-sample expected output: relu(relu(x) + x) = relu(x+x) = 2x for x>0
+//
+// New latency formula: CONV1_LAT = OUT * (IN * K + 2) = 1 * (1 * 3 + 2) = 5
+//                      CONV2_LAT = OUT * (OUT * K + 2) = 1 * (1 * 3 + 2) = 5
+//                      MAIN_LAT  = 10, TOTAL_LAT = MAIN_LAT + 1 = 11
+
 module tb_tcn_block ();
 
-  parameter KERNEL_SIZE = 3;
+  localparam IN_CHANNELS  = 1;
+  localparam OUT_CHANNELS = 1;
 
-  parameter DIALATION_1 = 1;
-  parameter DIALATION_2 = 2;
+  localparam KERNEL_SIZE  = 3;
+  localparam DILATION     = 1;
 
-  parameter DATA_WIDTH  = 16;
-  parameter ACC_WIDTH   = 32;
+  localparam DATA_WIDTH   = 16;
+  localparam ACC_WIDTH    = 32;
 
-  parameter CLK_PERIOD  = 10;
+  localparam CONV1_LAT    = OUT_CHANNELS * (IN_CHANNELS  * KERNEL_SIZE + 2);
+  localparam CONV2_LAT    = OUT_CHANNELS * (OUT_CHANNELS * KERNEL_SIZE + 2);
+  localparam MAIN_LAT     = CONV1_LAT + 1 + CONV2_LAT;                       // +1 for chaining register
+  localparam TOTAL_LAT    = MAIN_LAT  + 1;                                   // +1 for output register
 
-  // latency = 2 * (KERNEL_SIZE + 3) + 1 = 13 cycles
-  localparam TOTAL_LAT = 2 * (KERNEL_SIZE + 3) + 1;
+  localparam CLK_PERIOD   = 10;
 
-  logic                             clk;
-  logic                             rst_n;
+  logic                                     clk;
+  logic                                     rst_n;
 
-  logic                             en;
-  logic signed [DATA_WIDTH - 1 : 0] data_in;
+  logic                                     en;
+  logic [IN_CHANNELS  * DATA_WIDTH - 1 : 0] data_in;
 
-  wire  signed [DATA_WIDTH - 1 : 0] data_out;
-  wire                              valid_out;
+  wire  [OUT_CHANNELS * DATA_WIDTH - 1 : 0] data_out;
+  wire                                      valid_out;
+
+  // scalar aliases (IN=OUT=1, so same width as DATA_WIDTH)
+  wire signed [DATA_WIDTH - 1 : 0] out_ch0 = $signed(data_out [DATA_WIDTH - 1 : 0]);
 
   tcn_block #(
-    .KERNEL_SIZE   (KERNEL_SIZE),
+    .IN_CHANNELS   (IN_CHANNELS),
+    .OUT_CHANNELS  (OUT_CHANNELS),
 
-    .DILATION_1    (DIALATION_1),
-    .DILATION_2    (DIALATION_2),
+    .KERNEL_SIZE   (KERNEL_SIZE),
+    .DILATION      (DILATION),
 
     .DATA_WIDTH    (DATA_WIDTH),
     .ACC_WIDTH     (ACC_WIDTH),
 
+    .HAS_RES_CONV  (0),
+
     .WEIGHT_FILE_1 ("../../weights/tcn_block_w1.hex"),
-    .WEIGHT_FILE_2 ("../../weights/tcn_block_w2.hex")
-  ) dut (
-    .clk           (clk),
-    .rst_n         (rst_n),
+    .BIAS_FILE_1   ("../../weights/tcn_block_b1.hex"),
+    .WEIGHT_FILE_2 ("../../weights/tcn_block_w2.hex"),
+    .BIAS_FILE_2   ("../../weights/tcn_block_b2.hex")
+  ) dut_tcn_block (
+    .clk      (clk),
+    .rst_n    (rst_n),
 
-    .en            (en),
-    .data_in       (data_in),
+    .en       (en),
+    .data_in  (data_in),
 
-    .data_out      (data_out),
-    .valid_out     (valid_out)
+    .data_out (data_out),
+    .valid_out(valid_out)
   );
 
   initial clk = 0;
+  always #(CLK_PERIOD/2) clk = ~clk;
 
-  always #(CLK_PERIOD/2) begin
-    clk       = ~clk;
-  end
+  task apply_input(
+    input signed [DATA_WIDTH - 1 : 0] val,
+    input signed [DATA_WIDTH - 1 : 0] expected
+  );
+    integer t;
 
-  task apply_input(input signed [DATA_WIDTH - 1 : 0] val, input signed [DATA_WIDTH - 1 : 0] expected);
-    data_in   = val;
-    en        = 1;
+    data_in = val;
+    en      = 1;
 
     @(posedge clk); #1;
-    en        = 0;
-    data_in   = 0;
+    en      = 0;
+    data_in = 0;
 
-    repeat (TOTAL_LAT + 4) begin
+    for (t = 0; t < TOTAL_LAT + 4; t = t + 1) begin
       @(posedge clk); #1;
-
       if (valid_out) begin
-        if (data_out === expected) begin
-          $display("PASS  input = %-4d  output = %-4d  expected = %-4d", val, data_out, expected);
+        if (out_ch0 === expected) begin
+          $display("PASS  input = %-4d  output = %-4d  expected = %-4d", val, out_ch0, expected);
         end else begin
-          $display("FAIL  input = %-4d  output = %-4d  expected = %-4d", val, data_out, expected);
+          $display("FAIL  input = %-4d  output = %-4d  expected = %-4d", val, out_ch0, expected);
         end
-
         disable apply_input;
-
       end
     end
-
-    $display("Timeout (input = %0d)", val);
-
+    $display("TIMEOUT  input = %0d", val);
   endtask
 
-  // weights = [1, 0, 0] both convs : output = relu(relu(x) + x) = 2x for x>0
+  // weights = [1, 0, 0] bias = 0: conv output = input (identity filter)
+  // out = relu(relu(x)+x) = 2x for x>0, 0 for x<=0
   initial begin
     $display("TCN Block Testbench");
-    $display("w1 = w2 = [1, 0, 0]  d1 = %0d d2 = %0d  K = %0d  expected_lat = %0d", 1, 2, KERNEL_SIZE, TOTAL_LAT);
+    $display("IN = %0d  OUT = %0d  K = %0d  DIL = %0d", IN_CHANNELS, OUT_CHANNELS, KERNEL_SIZE, DILATION);
+    $display("CONV1_LAT = %0d  CONV2_LAT = %0d  MAIN_LAT = %0d  TOTAL = %0d", CONV1_LAT, CONV2_LAT, MAIN_LAT, TOTAL_LAT);
 
-    rst_n   = 0; 
-    en      = 0; 
+    rst_n   = 0;
+    en      = 0;
     data_in = 0;
 
     repeat(2) @(posedge clk); #1;
