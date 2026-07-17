@@ -40,9 +40,18 @@ module tcn_block #(
   // residual 1x1 (K = 1) : OUT_CH * (IN_CH + 2) cycles; 0 when HAS_RES_CONV = 0
   localparam RES_LAT    = HAS_RES_CONV ? OUT_CHANNELS * (IN_CHANNELS + 2) : 0;
 
-  // Output register adds 1 extra cycle after conv2_valid, so residual delay = MAIN_LAT - RES_LAT + 1. 
-  // It arrives exactly when the output reg captures.
-  localparam RES_DELAY  = MAIN_LAT - RES_LAT + 1;
+  // RES_DELAY derivation:
+  // The output register samples relu_out at posedge MAIN_LAT+1 (one cycle after
+  // conv2_valid).  res_sr[RES_DELAY-1] must contain the valid residual at that moment.
+  //
+  // Identity (HAS_RES_CONV=0): res_feed=data_in is combinational; res_sr[0]=x after
+  //   posedge X. Need res_sr[MAIN_LAT] at posedge MAIN_LAT → RES_DELAY = MAIN_LAT + 1.
+  //
+  // 1×1 conv (HAS_RES_CONV=1): res_conv.data_out[last_ch] is set via non-blocking at
+  //   posedge X+RES_LAT, so res_sr[0] first holds the fully-valid value after
+  //   posedge X+RES_LAT+1.  Need RES_DELAY-1 more shifts to reach posedge MAIN_LAT:
+  //   RES_LAT+1+(RES_DELAY-1) = MAIN_LAT → RES_DELAY = MAIN_LAT - RES_LAT.
+  localparam RES_DELAY  = HAS_RES_CONV ? (MAIN_LAT - RES_LAT) : (MAIN_LAT + 1);
 
   genvar                                   gch;
 
