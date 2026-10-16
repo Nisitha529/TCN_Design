@@ -59,6 +59,21 @@ run_int() { # $1=label, rest = -P overrides
     grep -E "\[FAIL\]|TIMEOUT|packets sent|p4rtl pushed|high watermark" "$W/irun.log" | head -10 | sed 's/^/     /'; rc=1
   fi
 }
+# ── flow_window: per-flow windows of N records ───────────────────────────────
+for n in 4 8 16; do
+  if ! iverilog -g2012 -Ptb_flow_window.N=$n -o "$W/fw.vvp" "$RTL/qos_record_pkg.sv" \
+        "$RTL/flow_window.sv" "$D/tb_flow_window.sv" 2> "$W/fwb.log"; then
+    echo "FAIL flow_window N=$n: build error"; grep -vE "sorry|warning" "$W/fwb.log" | head -5; rc=1; continue
+  fi
+  timeout 300 vvp -n "$W/fw.vvp" > "$W/fw.log" 2>&1
+  res=$(grep -oE "Results: [0-9]+ passed, [0-9]+ failed" "$W/fw.log" | tail -1)
+  if echo "$res" | grep -q ", 0 failed"; then
+    echo "ok   flow_window N=$n: $res  ($(grep -oE '[0-9]+ windows \([^)]*\)' "$W/fw.log"))"
+  else
+    echo "FAIL flow_window N=$n: ${res:-no result}"; grep -E "\[FAIL\]|TIMEOUT" "$W/fw.log" | sed 's/^/     /'; rc=1
+  fi
+done
+
 if [ -f "$FE/feprobe_top.sv" ]; then
   run_int "p4rtl -> buffer, deep, slow consumer"   ADDR_WIDTH=8 TREADY_PCT=50 EXPECT_DROPS=0
   run_int "p4rtl -> buffer, tiny, stalled consumer" ADDR_WIDTH=2 TREADY_PCT=3  EXPECT_DROPS=1
