@@ -13,7 +13,17 @@ module tb_shift_reg;
   logic                             en;
   logic signed [DATA_WIDTH - 1 : 0] data_in;
 
+  // The module's taps port is one FLAT packed bus (tap k at [k*DW +: DW]).
+  // Connecting an unpacked array to it leaves taps 1..DEPTH undriven (z), so
+  // connect a flat bus and unpack it here for the checks below.
+  wire  [(DEPTH + 1) * DATA_WIDTH - 1 : 0] taps_flat;
   wire  signed [DATA_WIDTH - 1 : 0] taps [0 : DEPTH];
+  genvar gt;
+  generate
+    for (gt = 0; gt <= DEPTH; gt = gt + 1) begin : unpack
+      assign taps[gt] = taps_flat[gt * DATA_WIDTH +: DATA_WIDTH];
+    end
+  endgenerate
 
   shift_reg #(
     .DATA_WIDTH (DATA_WIDTH),
@@ -25,7 +35,7 @@ module tb_shift_reg;
     .en         (en),
     .data_in    (data_in),
 
-    .taps       (taps)
+    .taps       (taps_flat)
   );
 
   // 10ns clock
