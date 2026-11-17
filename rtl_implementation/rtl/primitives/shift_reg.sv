@@ -33,9 +33,11 @@ module shift_reg #(
   // tap 0: current input
   assign taps[0 * DATA_WIDTH +: DATA_WIDTH] = data_in;
 
+  // genvar declared outside the loop: Quartus rejects `for (genvar i = ...)`
+  genvar gi;
   generate
-    for (genvar i = 1; i <= DEPTH; i++) begin : gen_taps
-      assign taps[i * DATA_WIDTH +: DATA_WIDTH] = delay[i - 1];
+    for (gi = 1; gi <= DEPTH; gi = gi + 1) begin : gen_taps
+      assign taps[gi * DATA_WIDTH +: DATA_WIDTH] = delay[gi - 1];
     end
   endgenerate
 

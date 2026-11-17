@@ -17,6 +17,13 @@
 //
 // Timing: N * (CO/P) * CI * K cycles plus a 2-cycle pipeline from start to
 // done. x must be held stable from start to done.
+//
+// Output registers: every y value is its own register at a FIXED position,
+// loaded when its (position, output group) is the one being finished. An
+// earlier version wrote y through a variable part-select inside a loop
+// (y[(t*CO + og*P + p)*DW +: DW] <= ...). Same hardware in principle, but
+// Quartus elaborated it into enormous select logic: 8.6 GB of RAM for one
+// block-3 conv, and the whole engine was killed for running out of memory.
 
 module win_conv #(
   parameter CI     = 4,
@@ -36,7 +43,7 @@ module win_conv #(
   input  wire                       rst_n,
   input  wire                       start,
   input  wire [N * CI * DW - 1 : 0] x,
-  output reg  [N * CO * DW - 1 : 0] y,
+  output wire [N * CO * DW - 1 : 0] y,
   output reg                        done,
   output wire                       busy
 );
@@ -71,6 +78,7 @@ module win_conv #(
   reg signed [DW - 1 : 0] b_x;
   reg [TW - 1 : 0]        b_t;
   reg [GW - 1 : 0]        b_og;
+  reg [P * DW - 1 : 0]    b_bias;                  // this group's P biases
 
   reg [P * ACC_W - 1 : 0] acc;                     // packed: lane p at [p*ACC_W +: ACC_W]
 
@@ -93,18 +101,10 @@ module win_conv #(
     b_og    <= og;
     b_first <= a_first;
     b_last  <= a_last;
+    for (int p = 0; p < P; p++) b_bias[p * DW +: DW] <= bmem[og * P + p];
   end
 
   // ── stage C: P multiply-accumulate lanes ────────────────────────────────
-  wire [P * ACC_W - 1 : 0] nacc;
-  genvar gp;
-  generate
-    for (gp = 0; gp < P; gp = gp + 1) begin : lane
-      wire signed [ACC_W - 1 : 0] prod = $signed(b_w[gp * DW +: DW]) * b_x;
-      assign nacc[gp * ACC_W +: ACC_W] = b_first ? prod : $signed(acc[gp * ACC_W +: ACC_W]) + prod;
-    end
-  endgenerate
-
   function automatic [DW - 1 : 0] finish(input [ACC_W - 1 : 0] a, input [DW - 1 : 0] bias);
     reg signed [ACC_W : 0] v;
     v = ($signed(a) >>> FRAC) + $signed(bias);
@@ -113,6 +113,41 @@ module win_conv #(
     if (RELU && v < 0) v = 0;
     finish = v[DW - 1 : 0];
   endfunction
+
+  wire [P * ACC_W - 1 : 0] nacc;
+  wire [P * DW - 1 : 0]    fin;                    // each lane's finished value
+  genvar gp;
+  generate
+    for (gp = 0; gp < P; gp = gp + 1) begin : lane
+      // Local wires per lane: if `fin` read its slice of the shared nacc bus,
+      // every lane's update would re-evaluate all P finish() calls in
+      // simulation (P*P per cycle -- the 64-lane test ran ~100x slower).
+      wire signed [ACC_W - 1 : 0] prod = $signed(b_w[gp * DW +: DW]) * b_x;
+      wire signed [ACC_W - 1 : 0] n    = b_first ? prod : $signed(acc[gp * ACC_W +: ACC_W]) + prod;
+      wire        [DW - 1 : 0]    f    = finish(n, b_bias[gp * DW +: DW]);
+      assign nacc[gp * ACC_W +: ACC_W] = n;
+      assign fin[gp * DW +: DW]        = f;
+    end
+  endgenerate
+
+  // Output registers: one P-value register per (position, output group),
+  // holding channels og*P .. og*P+P-1 of that position, i.e. y bits
+  // [(t*CO + og*P)*DW +: P*DW]. Fixed wiring, one enable each. (One register
+  // per single value is the same hardware, but N*CO always blocks made the
+  // N=8 engine simulation too slow to finish.)
+  wire y_load = b_v && b_last;
+  genvar gs;
+  generate
+    for (gs = 0; gs < N * NG; gs = gs + 1) begin : ygrp
+      localparam ST = gs / NG;
+      localparam SG = gs % NG;
+      reg [P * DW - 1 : 0] q;
+      always @(posedge clk) begin
+        if (y_load && b_t == ST && b_og == SG) q <= fin;
+      end
+      assign y[(ST * CO + SG * P) * DW +: P * DW] = q;
+    end
+  endgenerate
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -144,12 +179,7 @@ module win_conv #(
 
       if (b_v) begin
         acc <= nacc;
-        if (b_last) begin
-          for (int p = 0; p < P; p++) begin
-            y[(b_t * CO + b_og * P + p) * DW +: DW] <= finish(nacc[p * ACC_W +: ACC_W], bmem[b_og * P + p]);
-          end
-          if (b_t == N - 1 && b_og == NG - 1) done <= 1'b1;
-        end
+        if (b_last && b_t == N - 1 && b_og == NG - 1) done <= 1'b1;
       end
     end
   end

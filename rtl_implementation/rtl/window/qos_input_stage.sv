@@ -36,7 +36,7 @@ module qos_input_stage #(
   input  wire                         start,
   input  wire [N * SLOT_W - 1 : 0]    slots,
   input  wire [N - 1 : 0]             mask,
-  output reg  [N * (ES + EI + ED + EP) * DW - 1 : 0] act,
+  output wire [N * (ES + EI + ED + EP) * DW - 1 : 0] act,
   output reg                          done
 );
 
@@ -102,11 +102,23 @@ module qos_input_stage #(
         if (t == N - 1) run <= 1'b0;
         else            t <= t + 1'b1;
       end
-      if (r_v) begin
-        act[r_t * C0 * DW +: C0 * DW] <= {r_push, r_dir, r_ipt, r_size};   // channel 0 = size dim 0
-        if (r_t == N - 1) done <= 1'b1;
-      end
+      if (r_v && r_t == N - 1) done <= 1'b1;
     end
   end
+
+  // One fixed register per position, loaded when that position's lookups are
+  // out (channel 0 = size dim 0). Written this way rather than as a variable
+  // part-select, act[r_t*C0*DW +: C0*DW], which Quartus elaborates into very
+  // large select logic (see win_conv).
+  genvar gt;
+  generate
+    for (gt = 0; gt < N; gt = gt + 1) begin : pos
+      reg [C0 * DW - 1 : 0] q;
+      always @(posedge clk) begin
+        if (r_v && r_t == gt) q <= {r_push, r_dir, r_ipt, r_size};
+      end
+      assign act[gt * C0 * DW +: C0 * DW] = q;
+    end
+  endgenerate
 
 endmodule

@@ -117,10 +117,24 @@ periodic retraining.
 **Hardware** (simulation, iverilog + Vivado xsim):
 * `qos_tcn_engine` reproduces the trained N = 4 and N = 8 models **bit for bit** (class and all logits)
   on 200 real CESNET flows each.
-* N = 8: **10,481 cycles per flow**, i.e. 42 µs at 250 MHz, ~24k flows/s with one flow in flight.
+* N = 8: **10,481 cycles per flow** (N = 4: 5,253).
 * `feature_buffer`, behind the real p4rtl-generated pipeline: no packet is ever stalled, and
   records received + records dropped = packets sent.
 * Every testbench is checked against deliberately broken versions of its module, to make sure it can fail.
+
+**Hardware** (synthesis, details in [rtl_implementation/syn/RESULTS.md](rtl_implementation/syn/RESULTS.md)):
+
+| N = 8 engine | Artix-7 200T (Vivado, routed) | Cyclone IV EP4CE115 / DE2-115 (Quartus, fitted) |
+|---|---:|---:|
+| Logic | 51.9k LUT (39%) | 99.0k LE (86%) |
+| Registers | 62.5k FF | 66.2k |
+| Multipliers | 186 DSP48 | 181 × 18×18 (68%) |
+| Fmax | 66 MHz | 45 MHz (slow 85 °C corner) |
+| Per flow | 159 µs, ~6,300 flows/s | 233 µs, ~4,300 flows/s |
+
+Both N = 4 and N = 8 fit both devices. The clock is limited by the convolution's single-cycle
+finish (multiply, accumulate, shift, bias, saturate in one cycle) and, on the Cyclone IV, by a serial
+argmax in the head. The registers are the activation windows, held in flip-flops.
 
 ---
 
@@ -169,8 +183,12 @@ sibling directory (`../Compiler_design`) or `P4RTL_FEPROBE` set.
 ## Roadmap
 
 ### Next: the hardware's limits
-- [ ] **Synthesis sweep of `win_conv`** (lanes P = 4/16/64, channels 15/32/64) on the licensed Artix-7:
-      LUTs, DSPs, block RAM and Fmax, to find where the design breaks before restructuring it.
+- [x] **Synthesis of every module** on the Artix-7 200T and the DE2-115's Cyclone IV
+      (`syn/run_all_synth.sh`, results in `syn/RESULTS.md`).
+- [ ] **Pipeline the convolution's finish** with `mac_lane` + `requant` (66 → ~200 MHz on the
+      Artix-7), and make the head's argmax a tree. Needed to reach the DE2-115's 50 MHz.
+- [ ] **Activations in block RAM** instead of flip-flops: removes most registers and the wide input
+      multiplexers (86% of the DE2-115 for N = 8 today).
 - [ ] **Throughput**: let flows overlap across the three blocks (block 3 limits it to ~80k flows/s), add
       lanes, or replicate engines. Target ≥ 100k flows/s per engine.
 - [ ] **Full-chain test**: real flows as records through `feature_buffer` → `flow_window` → engine,
